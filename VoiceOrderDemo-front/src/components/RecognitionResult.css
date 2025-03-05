@@ -1,0 +1,112 @@
+.recognition-result {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background-color: var(--white);
+  overflow: hidden;
+  height: fit-content;
+  grid-column: 1 / -1;
+}
+
+.recognition-result:hover {
+  box-shadow: var(--shadow);
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: calc(var(--spacing) * 0.5) var(--spacing);
+  background-color: var(--input-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.result-header h3 {
+  margin: 0;
+  color: var(--primary-color);
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+
+.result-header h3::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.9em;
+  background-color: var(--primary-color);
+  margin-right: 8px;
+  border-radius: 2px;
+}
+
+.processing-indicator {
+  color: var(--primary-color);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: rgba(26, 115, 232, 0.1);
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+.processing-indicator::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--primary-color);
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.result-content {
+  padding: calc(var(--spacing) * 0.75);
+  color: var(--text-color);
+  line-height: 1.5;
+  min-height: 40px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.9rem;
+  background-color: var(--input-bg);
+  border-radius: calc(var(--radius) / 2);
+  margin: calc(var(--spacing) * 0.75);
+}
+
+.recognition-result.processing .result-content {
+  opacity: 0.7;
+}
+
+/* 空状态样式 */
+.result-content:empty::before {
+  content: "等待语音输入...";
+  color: var(--text-light);
+  font-style: italic;
+  opacity: 0.7;
+  font-size: 0.85rem;
+}
+
+/* 响应式调整 */
+@media (max-width: 480px) {
+  .result-header {
+    padding: calc(var(--spacing) * 0.5);
+  }
+
+  .result-content {
+    padding: calc(var(--spacing) * 0.5);
+    margin: calc(var(--spacing) * 0.5);
+    font-size: 0.9rem;
+    min-height: 48px;
+  }
+
+  .processing-indicator {
+    font-size: 0.85rem;
+    padding: 3px 10px;
+  }
+}
