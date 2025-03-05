@@ -177,6 +177,15 @@ function App() {
           </button>
         </div>
       </div>
+
+      {isProcessing && (
+        <div className="loading-overlay">
+          <div className="loading-container">
+            <div className="loading-spinner"></div>
+            <div className="loading-text">正在处理语音识别结果...</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
