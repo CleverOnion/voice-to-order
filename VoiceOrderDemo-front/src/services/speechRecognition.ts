@@ -22,6 +22,7 @@ interface MessagePayload {
   enable_intermediate_result?: boolean;
   enable_punctuation_prediction?: boolean;
   enable_inverse_text_normalization?: boolean;
+  max_sentence_silence?: number;
   session_id?: string;
   begin_time?: number;
   confidence?: number;
@@ -46,9 +47,9 @@ class SpeechRecognitionService {
   private currentTaskId: string = "";
   private audioContext: AudioContext | null = null;
   private cleanup: () => void = () => {};
-  private accumulatedText: string = "";
-  private debounceTimer: NodeJS.Timeout | null = null;
-  private lastSentText: string = "";
+  private currentSentence: string = ""; // 当前句子的临时结果
+  private accumulatedText: string = ""; // 已确认的句子累积
+  private currentSentenceIndex: number = 0; // 当前句子的索引
 
   constructor(config: SpeechRecognitionConfig) {
     this.config = config;
@@ -127,6 +128,7 @@ class SpeechRecognitionService {
             enable_intermediate_result: true,
             enable_punctuation_prediction: true,
             enable_inverse_text_normalization: true,
+            max_sentence_silence: 500, // 设置较短的断句时间，500ms
           },
         };
         this.ws.send(JSON.stringify(startParams));
@@ -157,59 +159,65 @@ class SpeechRecognitionService {
       case "TranscriptionStarted":
         console.log("语音识别已开始，可以发送音频数据");
         break;
+
+      case "SentenceBegin":
+        if (payload?.index) {
+          this.currentSentenceIndex = payload.index;
+          console.log(`开始识别第 ${this.currentSentenceIndex} 句话`);
+        }
+        break;
+
       case "TranscriptionResultChanged":
-        if (payload?.result) {
-          // 更新中间结果，但不立即发送
+        if (payload?.result && payload?.index === this.currentSentenceIndex) {
+          // 更新当前句子的临时结果
+          this.currentSentence = payload.result;
+          // 发送完整的文本（已确认的句子 + 当前正在识别的句子）
           if (this.onResultCallback) {
-            this.onResultCallback(payload.result);
+            const fullText = this.accumulatedText
+              ? `${this.accumulatedText}。${this.currentSentence}`
+              : this.currentSentence;
+            this.onResultCallback(fullText);
           }
         }
         break;
-      case "SentenceEnd":
-        if (payload?.result) {
-          // 更新累积的文本
-          this.accumulatedText = this.accumulatedText
-            ? this.accumulatedText + " " + payload.result
-            : payload.result;
 
-          // 使用防抖发送完整的句子结果
-          this.debounceSendText(this.accumulatedText);
+      case "SentenceEnd":
+        if (payload?.result && payload?.index === this.currentSentenceIndex) {
+          // 当前句子结束，添加到累积文本
+          const finalSentence = payload.result;
+          this.accumulatedText = this.accumulatedText
+            ? `${this.accumulatedText}。${finalSentence}`
+            : finalSentence;
+          this.currentSentence = ""; // 清空当前句子
+          // 发送完整的累积文本
+          if (this.onResultCallback) {
+            this.onResultCallback(this.accumulatedText);
+          }
+          console.log(
+            `第 ${this.currentSentenceIndex} 句话识别完成:`,
+            finalSentence
+          );
         }
         break;
+
       case "TranscriptionCompleted":
         console.log("语音识别已完成");
-        // 确保发送最后的文本
-        if (
-          this.accumulatedText &&
-          this.accumulatedText !== this.lastSentText
-        ) {
-          this.sendTextImmediately(this.accumulatedText);
+        // 如果还有未确认的当前句子，添加到累积文本
+        if (this.currentSentence) {
+          this.accumulatedText = this.accumulatedText
+            ? `${this.accumulatedText}。${this.currentSentence}`
+            : this.currentSentence;
+          if (this.onResultCallback) {
+            this.onResultCallback(this.accumulatedText);
+          }
         }
         this.stopRecording();
         break;
+
       case "TaskFailed":
         console.error("语音识别失败:", message);
         this.stopRecording();
         break;
-    }
-  }
-
-  private debounceSendText(text: string) {
-    // 取消之前的定时器
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-    }
-
-    // 设置新的定时器，1秒后发送文本
-    this.debounceTimer = setTimeout(() => {
-      this.sendTextImmediately(text);
-    }, 1000);
-  }
-
-  private sendTextImmediately(text: string) {
-    if (text && text !== this.lastSentText && this.onResultCallback) {
-      this.lastSentText = text;
-      this.onResultCallback(text);
     }
   }
 
@@ -254,7 +262,9 @@ class SpeechRecognitionService {
 
       this.onResultCallback = onResult;
       this.isRecording = true;
-      this.accumulatedText = ""; // 重置累积的文本
+      this.currentSentence = ""; // 重置当前句子
+      this.currentSentenceIndex = 0; // 重置句子索引
+      // 不重置 accumulatedText，保留之前的文本
 
       this.initWebSocket();
 
@@ -262,8 +272,6 @@ class SpeechRecognitionService {
         if (this.ws?.readyState === WebSocket.OPEN && this.isRecording) {
           const inputBuffer = audioProcessingEvent.inputBuffer;
           const pcmData = this.convertToInt16PCM(inputBuffer);
-
-          // 发送音频数据
           this.ws.send(pcmData);
         }
       };
@@ -289,7 +297,6 @@ class SpeechRecognitionService {
 
         this.onResultCallback = null;
         this.isRecording = false;
-        this.accumulatedText = "";
       };
     } catch (err) {
       const error = err as Error;
@@ -315,11 +322,6 @@ class SpeechRecognitionService {
     if (!this.isRecording) return;
 
     try {
-      // 确保发送最后的文本
-      if (this.accumulatedText && this.accumulatedText !== this.lastSentText) {
-        this.sendTextImmediately(this.accumulatedText);
-      }
-
       if (this.ws?.readyState === WebSocket.OPEN) {
         const stopParams: WebSocketMessage = {
           header: {
@@ -335,12 +337,13 @@ class SpeechRecognitionService {
     } catch (error) {
       console.error("停止录音失败:", error);
     } finally {
-      if (this.debounceTimer) {
-        clearTimeout(this.debounceTimer);
-        this.debounceTimer = null;
-      }
       this.cleanup();
     }
+  }
+
+  public reset() {
+    this.accumulatedText = "";
+    this.currentSentence = "";
   }
 }
 

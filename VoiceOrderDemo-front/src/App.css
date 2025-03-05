@@ -65,47 +65,54 @@ body {
 
 /* 连接状态指示器 */
 .connection-status {
-  position: absolute;
-  right: var(--spacing);
   display: flex;
   align-items: center;
-  font-size: 0.85rem;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
-.status-connected,
-.status-disconnected {
-  padding: 4px 8px;
-  border-radius: 12px;
-  display: flex;
+.status-ready,
+.status-processing {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
-.status-connected::before,
-.status-disconnected::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status-connected {
+.status-ready {
   background-color: rgba(40, 167, 69, 0.1);
   color: var(--success-color);
 }
 
-.status-connected::before {
+.status-ready::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 0.5rem;
+  border-radius: 50%;
   background-color: var(--success-color);
 }
 
-.status-disconnected {
-  background-color: rgba(220, 53, 69, 0.1);
-  color: var(--danger-color);
+.status-processing {
+  background-color: rgba(255, 193, 7, 0.1);
+  color: var(--warning-color);
 }
 
-.status-disconnected::before {
-  background-color: var(--danger-color);
+.status-processing::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background-color: var(--warning-color);
+  animation: pulse 1s infinite;
 }
 
 /* 主要内容区域 */
