@@ -50,9 +50,14 @@ class SpeechRecognitionService {
   private currentSentence: string = ""; // 当前句子的临时结果
   private accumulatedText: string = ""; // 已确认的句子累积
   private currentSentenceIndex: number = 0; // 当前句子的索引
+  private audioStream: MediaStream | null = null;
 
   constructor(config: SpeechRecognitionConfig) {
     this.config = config;
+    // 在构造函数中初始化 AudioContext
+    this.initAudioContext();
+    // 预先检查音频设备
+    this.checkAudioDevice();
   }
 
   private async checkAudioDevice(): Promise<boolean> {
@@ -69,15 +74,6 @@ class SpeechRecognitionService {
         throw new Error("未检测到音频输入设备");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      stream.getTracks().forEach((track) => track.stop());
       return true;
     } catch (err) {
       const error = err as Error;
@@ -88,13 +84,11 @@ class SpeechRecognitionService {
 
   private async initAudioContext(): Promise<void> {
     try {
-      if (this.audioContext) {
-        await this.audioContext.close();
+      if (!this.audioContext) {
+        const AudioContextClass =
+          window.AudioContext || window.webkitAudioContext;
+        this.audioContext = new AudioContextClass({ sampleRate: 16000 });
       }
-
-      const AudioContextClass =
-        window.AudioContext || window.webkitAudioContext;
-      this.audioContext = new AudioContextClass({ sampleRate: 16000 });
 
       if (this.audioContext.state === "suspended") {
         await this.audioContext.resume();
@@ -107,6 +101,10 @@ class SpeechRecognitionService {
   }
 
   private initWebSocket() {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return; // 如果WebSocket连接已经存在且开启，直接返回
+    }
+
     const url = `wss://nls-gateway.cn-shanghai.aliyuncs.com/ws/v1?token=${this.config.token}`;
     this.ws = new WebSocket(url);
     this.currentTaskId = this.generateTaskId();
@@ -128,7 +126,7 @@ class SpeechRecognitionService {
             enable_intermediate_result: true,
             enable_punctuation_prediction: true,
             enable_inverse_text_normalization: true,
-            max_sentence_silence: 500, // 设置较短的断句时间，500ms
+            max_sentence_silence: 500,
           },
         };
         this.ws.send(JSON.stringify(startParams));
@@ -237,10 +235,18 @@ class SpeechRecognitionService {
     if (this.isRecording) return;
 
     try {
-      await this.checkAudioDevice();
-      await this.initAudioContext();
+      this.onResultCallback = onResult;
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+      // 如果已经有音频流，先关闭它
+      if (this.audioStream) {
+        this.audioStream.getTracks().forEach((track) => track.stop());
+      }
+
+      // 初始化WebSocket连接
+      this.initWebSocket();
+
+      // 获取音频流
+      this.audioStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -250,23 +256,24 @@ class SpeechRecognitionService {
         },
       });
 
+      // 确保AudioContext已初始化
+      await this.initAudioContext();
+
       if (!this.audioContext) {
         throw new Error("AudioContext未初始化");
       }
 
-      const sourceNode = this.audioContext.createMediaStreamSource(stream);
+      const sourceNode = this.audioContext.createMediaStreamSource(
+        this.audioStream
+      );
       const scriptNode = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       sourceNode.connect(scriptNode);
       scriptNode.connect(this.audioContext.destination);
 
-      this.onResultCallback = onResult;
       this.isRecording = true;
-      this.currentSentence = ""; // 重置当前句子
-      this.currentSentenceIndex = 0; // 重置句子索引
-      // 不重置 accumulatedText，保留之前的文本
-
-      this.initWebSocket();
+      this.currentSentence = "";
+      this.currentSentenceIndex = 0;
 
       scriptNode.onaudioprocess = (audioProcessingEvent) => {
         if (this.ws?.readyState === WebSocket.OPEN && this.isRecording) {
@@ -280,7 +287,9 @@ class SpeechRecognitionService {
         if (this.isRecording) {
           sourceNode.disconnect();
           scriptNode.disconnect();
-          stream.getTracks().forEach((track) => track.stop());
+          if (this.audioStream) {
+            this.audioStream.getTracks().forEach((track) => track.stop());
+          }
         }
 
         if (this.ws) {
@@ -288,11 +297,6 @@ class SpeechRecognitionService {
             this.ws.close();
           }
           this.ws = null;
-        }
-
-        if (this.audioContext) {
-          this.audioContext.close().catch(console.error);
-          this.audioContext = null;
         }
 
         this.onResultCallback = null;
