@@ -4,6 +4,8 @@
   flex-direction: column;
   gap: 1px;
   background-color: var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .form-section {
@@ -90,9 +92,38 @@
   font-size: 0.85rem;
 }
 
+.form-section .ant-input,
+.form-section .ant-input-number {
+  width: 100%;
+  border-radius: calc(var(--radius) / 2);
+}
+
+.form-section .ant-input:hover,
+.form-section .ant-input-number:hover {
+  border-color: var(--primary-color);
+}
+
+.form-section .ant-input:focus,
+.form-section .ant-input-number-focused {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+}
+
+.form-section .ant-input-disabled,
+.form-section .ant-input-number-disabled {
+  background-color: var(--input-bg);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
-  .order-form {
-    grid-template-columns: 1fr;
+  .form-section td:first-child {
+    width: 80px;
+    font-size: 0.85rem;
+  }
+
+  .form-section td {
+    padding: 8px 12px;
   }
 }

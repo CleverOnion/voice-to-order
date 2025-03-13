@@ -1,0 +1,74 @@
+.jargon-page {
+  padding: 16px;
+}
+
+.page-header {
+  margin-bottom: 16px;
+}
+
+.jargon-card {
+  margin-bottom: 16px;
+}
+
+.jargon-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jargon-conversion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.jargon-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.jargon-item Text {
+  display: block;
+  word-break: break-all;
+}
+
+.conversion-arrow {
+  color: #1890ff;
+  font-size: 20px;
+}
+
+.create-time {
+  font-size: 12px;
+}
+
+@media screen and (max-width: 767px) {
+  .jargon-page {
+    padding: 8px;
+  }
+
+  .ant-card-actions {
+    margin: 0;
+    border-top: none;
+    background: transparent;
+  }
+
+  .ant-list-pagination {
+    margin-top: 16px;
+    text-align: center;
+  }
+
+  .ant-modal {
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .ant-modal-content {
+    border-radius: 0;
+  }
+
+  .ant-typography-expand {
+    color: #1890ff;
+    font-size: 12px;
+  }
+}

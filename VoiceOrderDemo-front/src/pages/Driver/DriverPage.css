@@ -1,0 +1,47 @@
+.driver-page {
+  padding: 16px;
+}
+
+.page-header {
+  margin-bottom: 16px;
+}
+
+.driver-card {
+  margin-bottom: 16px;
+}
+
+.driver-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.create-time {
+  font-size: 12px;
+}
+
+@media screen and (max-width: 767px) {
+  .driver-page {
+    padding: 8px;
+  }
+
+  .ant-card-actions {
+    margin: 0;
+    border-top: none;
+    background: transparent;
+  }
+
+  .ant-list-pagination {
+    margin-top: 16px;
+    text-align: center;
+  }
+
+  .ant-modal {
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .ant-modal-content {
+    border-radius: 0;
+  }
+}

@@ -21,9 +21,11 @@ server:
 logging:
   level:
     com.cleveronion.voiceorderdemoback: DEBUG
+  charset:
+    console: utf-8
 
 openai:
   api:
-    key: "sk-e03282d1160e46929821a51a090a765e"
-  base-url: "https://api.deepseek.com"
-  model-name: "deepseek-chat"
+    key: "e9f1e652-2214-41e0-8c20-e38f6b66e437"
+  base-url: "https://ark.cn-beijing.volces.com/api/v3"
+  model-name: "deepseek-v3-241226"

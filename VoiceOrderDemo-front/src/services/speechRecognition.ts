@@ -43,6 +43,7 @@ class SpeechRecognitionService {
   private config: SpeechRecognitionConfig;
   private ws: WebSocket | null = null;
   private onResultCallback: ((text: string) => void) | null = null;
+  private onAudioDataCallback: ((data: Float32Array) => void) | null = null;
   private isRecording: boolean = false;
   private currentTaskId: string = "";
   private audioContext: AudioContext | null = null;
@@ -51,12 +52,15 @@ class SpeechRecognitionService {
   private accumulatedText: string = ""; // 已确认的句子累积
   private currentSentenceIndex: number = 0; // 当前句子的索引
   private audioStream: MediaStream | null = null;
+  private isConnecting: boolean = false;
+  private analyser: AnalyserNode | null = null;
+  private audioDataArray: Float32Array | null = null;
+  private animationFrameId: number | null = null;
 
   constructor(config: SpeechRecognitionConfig) {
     this.config = config;
-    // 在构造函数中初始化 AudioContext
+    // 在构造函数中初始化基础设施
     this.initAudioContext();
-    // 预先检查音频设备
     this.checkAudioDevice();
   }
 
@@ -100,52 +104,103 @@ class SpeechRecognitionService {
     }
   }
 
-  private initWebSocket() {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      return; // 如果WebSocket连接已经存在且开启，直接返回
+  private async initWebSocket(): Promise<void> {
+    if (this.isConnecting) {
+      return;
     }
 
-    const url = `wss://nls-gateway.cn-shanghai.aliyuncs.com/ws/v1?token=${this.config.token}`;
-    this.ws = new WebSocket(url);
-    this.currentTaskId = this.generateTaskId();
+    // 如果已有连接，先关闭
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
 
-    this.ws.onopen = () => {
-      console.log("语音识别WebSocket连接已建立");
-      if (this.ws) {
-        const startParams: WebSocketMessage = {
-          header: {
-            message_id: this.generateMessageId(),
-            task_id: this.currentTaskId,
-            namespace: "SpeechTranscriber",
-            name: "StartTranscription",
-            appkey: this.config.appKey,
-          },
-          payload: {
-            format: "PCM",
-            sample_rate: 16000,
-            enable_intermediate_result: true,
-            enable_punctuation_prediction: true,
-            enable_inverse_text_normalization: true,
-            max_sentence_silence: 500,
-          },
+    this.isConnecting = true;
+
+    try {
+      const url = `wss://nls-gateway.cn-shanghai.aliyuncs.com/ws/v1?token=${this.config.token}`;
+      this.ws = new WebSocket(url);
+
+      return new Promise<void>((resolve, reject) => {
+        if (!this.ws) {
+          this.isConnecting = false;
+          reject(new Error("WebSocket初始化失败"));
+          return;
+        }
+
+        this.ws.onopen = () => {
+          console.log("语音识别WebSocket连接已建立");
+          this.isConnecting = false;
+          resolve();
         };
+
+        this.ws.onclose = () => {
+          console.log("语音识别WebSocket连接已关闭");
+          this.isConnecting = false;
+          this.ws = null;
+          if (this.isRecording) {
+            this.stopRecording();
+          }
+        };
+
+        this.ws.onerror = (error) => {
+          console.error("语音识别WebSocket错误:", error);
+          this.isConnecting = false;
+          reject(error);
+        };
+
+        this.ws.onmessage = (event) => {
+          const message = JSON.parse(event.data) as WebSocketMessage;
+          this.handleMessage(message);
+        };
+
+        // 设置连接超时
+        setTimeout(() => {
+          if (this.isConnecting) {
+            this.isConnecting = false;
+            reject(new Error("WebSocket连接超时"));
+          }
+        }, 5000);
+      });
+    } catch (error) {
+      this.isConnecting = false;
+      throw error;
+    }
+  }
+
+  private async startTranscription() {
+    try {
+      // 每次开始转录前重新建立连接
+      await this.initWebSocket();
+
+      this.currentTaskId = this.generateTaskId();
+      const startParams: WebSocketMessage = {
+        header: {
+          message_id: this.generateMessageId(),
+          task_id: this.currentTaskId,
+          namespace: "SpeechTranscriber",
+          name: "StartTranscription",
+          appkey: this.config.appKey,
+        },
+        payload: {
+          format: "PCM",
+          sample_rate: 16000,
+          enable_intermediate_result: true,
+          enable_punctuation_prediction: true,
+          enable_inverse_text_normalization: true,
+          max_sentence_silence: 500,
+        },
+      };
+
+      if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify(startParams));
+      } else {
+        throw new Error("WebSocket连接未就绪");
       }
-    };
-
-    this.ws.onmessage = (event) => {
-      const message = JSON.parse(event.data) as WebSocketMessage;
-      this.handleMessage(message);
-    };
-
-    this.ws.onerror = (error) => {
-      console.error("语音识别WebSocket错误:", error);
-    };
-
-    this.ws.onclose = () => {
-      console.log("语音识别WebSocket连接已关闭");
-      this.isRecording = false;
-    };
+    } catch (error) {
+      console.error("开始转录失败:", error);
+      throw error;
+    }
   }
 
   private handleMessage(message: WebSocketMessage) {
@@ -231,21 +286,41 @@ class SpeechRecognitionService {
     ).join("");
   }
 
-  public async startRecording(onResult: (text: string) => void) {
+  private updateAudioData = () => {
+    if (
+      !this.analyser ||
+      !this.audioDataArray ||
+      !this.isRecording ||
+      !this.onAudioDataCallback
+    ) {
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+      return;
+    }
+
+    this.analyser.getFloatTimeDomainData(this.audioDataArray);
+    this.onAudioDataCallback(this.audioDataArray);
+    this.animationFrameId = requestAnimationFrame(this.updateAudioData);
+  };
+
+  public async startRecording(
+    onResult: (text: string) => void,
+    onAudioData: (data: Float32Array) => void
+  ) {
     if (this.isRecording) return;
 
     try {
       this.onResultCallback = onResult;
+      this.onAudioDataCallback = onAudioData;
 
-      // 如果已经有音频流，先关闭它
       if (this.audioStream) {
         this.audioStream.getTracks().forEach((track) => track.stop());
       }
 
-      // 初始化WebSocket连接
-      this.initWebSocket();
+      await this.startTranscription();
 
-      // 获取音频流
       this.audioStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -256,7 +331,6 @@ class SpeechRecognitionService {
         },
       });
 
-      // 确保AudioContext已初始化
       await this.initAudioContext();
 
       if (!this.audioContext) {
@@ -268,12 +342,25 @@ class SpeechRecognitionService {
       );
       const scriptNode = this.audioContext.createScriptProcessor(4096, 1, 1);
 
-      sourceNode.connect(scriptNode);
+      // 创建分析器节点
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.3;
+      this.analyser.minDecibels = -90;
+      this.analyser.maxDecibels = -10;
+      this.audioDataArray = new Float32Array(this.analyser.frequencyBinCount);
+
+      // 连接节点
+      sourceNode.connect(this.analyser);
+      this.analyser.connect(scriptNode);
       scriptNode.connect(this.audioContext.destination);
 
       this.isRecording = true;
       this.currentSentence = "";
       this.currentSentenceIndex = 0;
+
+      // 开始更新音频数据
+      this.updateAudioData();
 
       scriptNode.onaudioprocess = (audioProcessingEvent) => {
         if (this.ws?.readyState === WebSocket.OPEN && this.isRecording) {
@@ -286,6 +373,9 @@ class SpeechRecognitionService {
       this.cleanup = () => {
         if (this.isRecording) {
           sourceNode.disconnect();
+          if (this.analyser) {
+            this.analyser.disconnect();
+          }
           scriptNode.disconnect();
           if (this.audioStream) {
             this.audioStream.getTracks().forEach((track) => track.stop());
@@ -299,8 +389,16 @@ class SpeechRecognitionService {
           this.ws = null;
         }
 
+        if (this.animationFrameId) {
+          cancelAnimationFrame(this.animationFrameId);
+          this.animationFrameId = null;
+        }
+
         this.onResultCallback = null;
+        this.onAudioDataCallback = null;
         this.isRecording = false;
+        this.analyser = null;
+        this.audioDataArray = null;
       };
     } catch (err) {
       const error = err as Error;
